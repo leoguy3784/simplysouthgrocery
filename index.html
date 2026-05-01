@@ -1028,7 +1028,7 @@ async function saveStockItem() {
   }
   await saveProducts(products);
   clearStockForm();
-  renderOwnerStock();
+  await renderOwnerStock();
   showAlert('owner-alert', 'Product saved successfully!', 'success');
 }
 
@@ -1077,7 +1077,7 @@ async function addStockEntry() {
   saveStockLog(log);
 
   clearRestockForm();
-  renderOwnerStock();
+  await renderOwnerStock();
   showAlert('owner-alert', `Added ${qty} units to ${products[idx].name}. New total: ${products[idx].qty}.`, 'success');
 }
 
@@ -1093,28 +1093,49 @@ async function editProduct(id) {
   const products = await getProducts();
   const p = products.find(x => x.id === id);
   if (!p) return;
+  
+  // Switch to new product mode and populate form
   setStockMode('new');
   editingProductId = id;
   pendingImageBase64 = p.image || null;
+  
+  // Fill in all fields
   document.getElementById('stock-name').value = p.name;
   document.getElementById('stock-emoji').value = p.emoji || '';
   document.getElementById('stock-price').value = p.price;
   document.getElementById('stock-unit').value = p.unit;
   document.getElementById('stock-qty').value = p.qty;
   document.getElementById('stock-low').value = p.lowAt;
+  
+  // Show existing image if present
   if (p.image) {
     document.getElementById('img-preview-area').innerHTML =
       `<img src="${p.image}" class="img-preview"><br><span style="font-size:0.75rem;color:var(--green);">✓ Existing photo</span>`;
   }
-  document.getElementById('stock-name').focus();
-  document.getElementById('stock-name').scrollIntoView({ behavior: 'smooth' });
+  
+  // Scroll to form and focus
+  const formSection = document.getElementById('form-new-product');
+  if (formSection) {
+    setTimeout(() => {
+      formSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('stock-name').focus();
+    }, 100);
+  }
+  
+  showAlert('owner-alert', `Editing: ${p.name}`, 'success');
 }
 
-function deleteProduct(id) {
-  if (!confirm('Delete this product?')) return;
-  const products = getProducts().filter(p => p.id !== id);
-  saveProducts(products);
-  renderOwnerStock();
+async function deleteProduct(id) {
+  const products = await getProducts();
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  
+  if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+  
+  const filtered = products.filter(prod => prod.id !== id);
+  await saveProducts(filtered);
+  await renderOwnerStock();
+  showAlert('owner-alert', `"${p.name}" deleted successfully.`, 'success');
 }
 
 function clearStockForm() {
