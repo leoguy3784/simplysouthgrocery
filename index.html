@@ -403,7 +403,7 @@
         <div class="card-title">📋 Stock History Log</div>
         <div class="overflow-x">
           <table class="data-table">
-            <thead><tr><th>Date</th><th>Product</th><th>Qty Added</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Date</th><th>Product</th><th>Qty Added</th><th>Notes</th><th>Actions</th></tr></thead>
             <tbody id="stock-log-tbody"></tbody>
           </table>
         </div>
@@ -546,6 +546,19 @@
     <div id="modal-order-content"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STOCK LOG ENTRY EDIT MODAL ===== -->
+<div class="modal-backdrop" id="stock-log-modal">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit Stock Entry</div>
+    <div id="stock-log-modal-content"></div>
+    <div class="modal-actions">
+      <button class="btn btn-red btn-sm" onclick="deleteStockLogEntry()">🗑️ Delete</button>
+      <button class="btn btn-outline" onclick="closeStockLogModal()">Cancel</button>
+      <button class="btn btn-green" onclick="saveStockLogEdit()">💾 Save</button>
     </div>
   </div>
 </div>
@@ -967,7 +980,7 @@ async function renderOwnerStock() {
   const sorted = [...log].sort((a,b) => new Date(b.date)-new Date(a.date));
   document.getElementById('stock-log-tbody').innerHTML = sorted.length === 0
     ? '<tr><td colspan="4" style="color:var(--gray-400);font-size:0.85rem;padding:12px;">No stock entries yet. Use "Add Stock to Existing" to log restocking.</td></tr>'
-    : sorted.map(entry => {
+    : sorted.map((entry, idx) => {
         const p = products.find(x => x.id === entry.productId);
         const imgThumb = p && p.image ? `<img src="${p.image}" style="width:24px;height:24px;object-fit:cover;border-radius:4px;vertical-align:middle;margin-right:6px;">` : (p ? p.emoji+' ' : '');
         return `<tr>
@@ -975,6 +988,9 @@ async function renderOwnerStock() {
           <td style="font-size:0.85rem;">${imgThumb}${p ? p.name : '(deleted)'}</td>
           <td style="font-size:0.85rem; font-weight:700; color:var(--green);">+${entry.qty}</td>
           <td style="font-size:0.82rem; color:var(--gray-600);">${entry.notes || '—'}</td>
+          <td style="display:flex; gap:6px;">
+            <button class="btn btn-outline btn-sm" onclick="editStockLogEntry(${idx})">✏️</button>
+          </td>
         </tr>`;
       }).join('');
 }
@@ -1073,8 +1089,8 @@ function clearRestockForm() {
   document.getElementById('restock-preview').style.display = 'none';
 }
 
-function editProduct(id) {
-  const products = getProducts();
+async function editProduct(id) {
+  const products = await getProducts();
   const p = products.find(x => x.id === id);
   if (!p) return;
   setStockMode('new');
@@ -1112,6 +1128,110 @@ function clearStockForm() {
      <div style="font-size:0.82rem;color:var(--gray-600);">Click to upload photo</div>
      <div style="font-size:0.75rem;color:var(--gray-400);">JPG, PNG, WEBP — stored in app</div>`;
   document.getElementById('stock-image-input').value = '';
+}
+
+// ===== STOCK LOG ENTRY EDIT =====
+let editingLogIndex = null;
+
+function editStockLogEntry(idx) {
+  const log = getStockLog();
+  const entry = log[idx];
+  if (!entry) return;
+  
+  const products = getProducts();
+  const product = products.find(p => p.id === entry.productId);
+  
+  editingLogIndex = idx;
+  document.getElementById('stock-log-modal-content').innerHTML = `
+    <div style="background:var(--green-pale); padding:12px; border-radius:8px; margin-bottom:1rem; display:flex; align-items:center; gap:12px;">
+      <div>${product && product.image ? `<img src="${product.image}" style="width:48px;height:48px;object-fit:cover;border-radius:8px;">` : `<div style="width:48px;height:48px;border-radius:8px;background:var(--gray-200);display:flex;align-items:center;justify-content:center;font-size:1.5rem;">${product ? product.emoji : '🛒'}</div>`}</div>
+      <div>
+        <div style="font-weight:700;color:var(--green-dark);">${product ? product.name : 'Unknown Product'}</div>
+        <div style="font-size:0.82rem;color:var(--gray-600);">Current stock: ${product ? product.qty : '—'} units</div>
+      </div>
+    </div>
+    
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label>Quantity Added</label>
+      <input type="number" id="log-edit-qty" value="${entry.qty}" min="1" style="border:1.5px solid var(--gray-200);border-radius:8px;padding:8px 12px;font-family:var(--font);font-size:0.92rem;outline:none;background:var(--gray-100);">
+    </div>
+    
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label>Date</label>
+      <input type="date" id="log-edit-date" value="${entry.date}" style="border:1.5px solid var(--gray-200);border-radius:8px;padding:8px 12px;font-family:var(--font);font-size:0.92rem;outline:none;background:var(--gray-100);">
+    </div>
+    
+    <div class="form-group">
+      <label>Notes</label>
+      <input type="text" id="log-edit-notes" value="${entry.notes || ''}" placeholder="e.g. Supplier batch, delivery notes" style="border:1.5px solid var(--gray-200);border-radius:8px;padding:8px 12px;font-family:var(--font);font-size:0.92rem;outline:none;background:var(--gray-100);">
+    </div>
+  `;
+  document.getElementById('stock-log-modal').classList.add('open');
+}
+
+async function saveStockLogEdit() {
+  if (editingLogIndex === null) return;
+  
+  const log = getStockLog();
+  const oldEntry = log[editingLogIndex];
+  const products = await getProducts();
+  
+  const newQty = parseInt(document.getElementById('log-edit-qty').value);
+  const newDate = document.getElementById('log-edit-date').value;
+  const newNotes = document.getElementById('log-edit-notes').value.trim();
+  
+  if (!newQty || newQty < 1) { showAlert('owner-alert', 'Quantity must be at least 1.', 'error'); return; }
+  if (!newDate) { showAlert('owner-alert', 'Please select a date.', 'error'); return; }
+  
+  // Adjust product quantity based on old vs new quantity
+  const qtyDifference = newQty - oldEntry.qty;
+  const productIdx = products.findIndex(p => p.id === oldEntry.productId);
+  if (productIdx >= 0) {
+    products[productIdx].qty += qtyDifference;
+    await saveProducts(products);
+  }
+  
+  // Update log entry
+  log[editingLogIndex] = {
+    productId: oldEntry.productId,
+    qty: newQty,
+    date: newDate,
+    notes: newNotes
+  };
+  saveStockLog(log);
+  
+  closeStockLogModal();
+  await renderOwnerStock();
+  showAlert('owner-alert', 'Stock entry updated successfully!', 'success');
+}
+
+function deleteStockLogEntry() {
+  if (editingLogIndex === null) return;
+  if (!confirm('Delete this stock entry? The product quantity will be adjusted.')) return;
+  
+  const log = getStockLog();
+  const entry = log[editingLogIndex];
+  
+  // Restore product quantity
+  (async () => {
+    const products = await getProducts();
+    const productIdx = products.findIndex(p => p.id === entry.productId);
+    if (productIdx >= 0) {
+      products[productIdx].qty -= entry.qty;
+      await saveProducts(products);
+    }
+    
+    log.splice(editingLogIndex, 1);
+    saveStockLog(log);
+    closeStockLogModal();
+    await renderOwnerStock();
+    showAlert('owner-alert', 'Stock entry deleted and quantity adjusted.', 'success');
+  })();
+}
+
+function closeStockLogModal() {
+  document.getElementById('stock-log-modal').classList.remove('open');
+  editingLogIndex = null;
 }
 
 // ===== ORDER MANAGEMENT =====
